@@ -7,24 +7,26 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
-    permissions:        
-      contents: write  
+    # This block is what allows the "direct" execution without a manual PAT
+    permissions:
+      contents: write
       issues: write
       pull-requests: write
+
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          # If using a PAT, you must pass it here too:
-          token: ${{ secrets.GITHUBTOKEN }} 
+          # We use the built-in token here to avoid the "Input required" error
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
 
-      - name: Install Dependencies
+      - name: Install Semantic Release
         run: |
           npm install -g semantic-release \
           @semantic-release/commit-analyzer \
@@ -35,5 +37,6 @@ jobs:
 
       - name: Run Semantic Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUBTOKEN }}
+          # Use the built-in GITHUB_TOKEN directly
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx semantic-release
