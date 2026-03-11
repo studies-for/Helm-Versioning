@@ -1,5 +1,10 @@
 module.exports = {
+  // This tells standard-version which files to update
   bumpFiles: [
+    {
+      filename: "package.json",
+      type: "json"
+    },
     {
       filename: "Immutable/ARX/Chart.yaml",
       updater: "scripts/helm-updater.js"

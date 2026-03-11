@@ -1,33 +1,29 @@
-const yaml = require('js-yaml');
-
-module.exports.readVersion = function(contents) {
-  try {
-    const doc = yaml.load(contents);
-    if (!doc || !doc.version) {
-      console.error(">>> ERROR: Could not find 'version' field in the YAML contents.");
-      return "0.0.0"; // Fallback to avoid the 'undefined' error
+module.exports = {
+  // 1. Extract the version from the file
+  readVersion: function(contents) {
+    const versionMatch = contents.match(/^version:\s*(['"]?)([\d.]+)\1/m);
+    if (versionMatch) {
+      return versionMatch[2];
     }
-    return doc.version.toString(); 
-  } catch (e) {
-    console.error(">>> ERROR parsing YAML:", e);
-    return "0.0.0";
-  }
-};
+    return undefined;
+  },
 
-module.exports.writeVersion = function(contents, version) {
-  try {
-    const doc = yaml.load(contents);
+  // 2. Write the new version and appVersion back to the file
+  writeVersion: function(contents, version) {
     const suitePrefix = "22.4";
+    
+    // Replace the version: line
+    let newContents = contents.replace(
+      /^version:\s*(['"]?)([\d.]+)\1/m, 
+      `version: ${version}`
+    );
 
-    // Update the fields
-    doc.version = version;
-    doc.appVersion = `${suitePrefix}.${version}`;
+    // Replace the appVersion: line with your suite prefix
+    newContents = newContents.replace(
+      /^appVersion:\s*(['"]?)([\d.]+)\1/m, 
+      `appVersion: "${suitePrefix}.${version}"`
+    );
 
-    // Return the updated YAML string
-    // lineWidth: -1 prevents line wrapping for long lines
-    return yaml.dump(doc, { lineWidth: -1, noArrayIndent: true });
-  } catch (e) {
-    console.error(">>> ERROR writing YAML:", e);
-    return contents;
+    return newContents;
   }
 };
