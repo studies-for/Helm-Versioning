@@ -1,6 +1,6 @@
 {
   "name": "helm-versioning",
-  "version": "4.1.5", 
+  "version": "4.1.6",
   "devDependencies": {
     "standard-version": "^9.5.0"
   }
