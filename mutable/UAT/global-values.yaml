@@ -1,6 +1,6 @@
 # Global values accessible by parent and all subcharts
 global:
-  environment: production
+  environment: production-1
   domain: example.com
   registry: mydocker-repo.io
 
