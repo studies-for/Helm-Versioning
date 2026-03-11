@@ -1,0 +1,17 @@
+# Global values accessible by parent and all subcharts
+global:
+  environment: production
+  domain: example.com
+  registry: mydocker-repo.io
+
+# Overriding values specifically for child-1
+child-1:
+  replicaCount: 3
+  service:
+    port: 80
+
+# Overriding values specifically for child-2
+child-2:
+  replicaCount: 1
+  image:
+    repository: nginx-custom
