@@ -7,18 +7,14 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
-    # This block is what allows the "direct" execution without a manual PAT
     permissions:
-      contents: write
-      issues: write
-      pull-requests: write
+      contents: write # Required to push tags and commits
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          # We use the built-in token here to avoid the "Input required" error
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
@@ -26,17 +22,16 @@ jobs:
         with:
           node-version: 'lts/*'
 
-      - name: Install Semantic Release
+      - name: Configure Git Identity
         run: |
-          npm install -g semantic-release \
-          @semantic-release/commit-analyzer \
-          @semantic-release/release-notes-generator \
-          @semantic-release/git \
-          @semantic-release/github \
-          semantic-release-helm
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Run Semantic Release
+      - name: Install and Release
         env:
-          # Use the built-in GITHUB_TOKEN directly
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx semantic-release
+        run: | 
+          npm install
+          # We pass [skip ci] in the message to prevent infinite loops
+          npx standard-version --releaseCommitMessageFormat "chore(release): {{currentTag}} [skip ci]"
+          git push --follow-tags origin main
