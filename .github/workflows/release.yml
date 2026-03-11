@@ -32,6 +32,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: | 
           npm install
-          # We pass [skip ci] in the message to prevent infinite loops
-          npx standard-version --releaseCommitMessageFormat "chore(release): {{currentTag}} [skip ci]"
+          # Try a normal release, if it fails due to no tags, try first-release
+          npx standard-version --releaseCommitMessageFormat "chore(release): {{currentTag}} [skip ci]" || \
+          npx standard-version --first-release --releaseCommitMessageFormat "chore(release): {{currentTag}} [skip ci]"
+          
           git push --follow-tags origin main

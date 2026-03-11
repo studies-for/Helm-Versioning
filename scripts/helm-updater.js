@@ -1,22 +1,33 @@
-const fs = require('fs');
 const yaml = require('js-yaml');
 
-// This reads the current version from the YAML
 module.exports.readVersion = function(contents) {
-  return yaml.load(contents).version;
+  try {
+    const doc = yaml.load(contents);
+    if (!doc || !doc.version) {
+      console.error(">>> ERROR: Could not find 'version' field in the YAML contents.");
+      return "0.0.0"; // Fallback to avoid the 'undefined' error
+    }
+    return doc.version.toString(); 
+  } catch (e) {
+    console.error(">>> ERROR parsing YAML:", e);
+    return "0.0.0";
+  }
 };
 
-// This writes the new versions based on your specific rules
 module.exports.writeVersion = function(contents, version) {
-  const doc = yaml.load(contents);
-  const suitePrefix = "22.4";
+  try {
+    const doc = yaml.load(contents);
+    const suitePrefix = "22.4";
 
-  // Your Business Rule:
-  // 1. Chart version follows the release version (e.g., 4.1.6)
-  doc.version = version; 
-  
-  // 2. appVersion follows the Suite format (e.g., 22.4.4.1.6)
-  doc.appVersion = `${suitePrefix}.${version}`; 
-  
-  return yaml.dump(doc, { lineWidth: -1 });
+    // Update the fields
+    doc.version = version;
+    doc.appVersion = `${suitePrefix}.${version}`;
+
+    // Return the updated YAML string
+    // lineWidth: -1 prevents line wrapping for long lines
+    return yaml.dump(doc, { lineWidth: -1, noArrayIndent: true });
+  } catch (e) {
+    console.error(">>> ERROR writing YAML:", e);
+    return contents;
+  }
 };
