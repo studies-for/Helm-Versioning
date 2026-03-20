@@ -2,6 +2,8 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [4.1.24](https://github.com/studies-for/Helm-Versioning/compare/v4.1.23...v4.1.24) (2026-03-20)
+
 ### [4.1.23](https://github.com/studies-for/Helm-Versioning/compare/v4.1.22...v4.1.23) (2026-03-20)
 
 ### [4.1.22](https://github.com/studies-for/Helm-Versioning/compare/v4.1.21...v4.1.22) (2026-03-20)
