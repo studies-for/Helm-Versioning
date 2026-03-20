@@ -3,11 +3,10 @@ child-1:
   ingress:
     enabled: true
   hpa:
-    enabled: false
+    enabled: false 
   image:
-    registry: ""
-    repository: "igcb-otp-arx-al-docker/igcb-otp-arx-al-docker"
-    tag: "22.2.1.18-stg"    
+    repository: child-1-app
+    tag: "latest-5"
 
 child-2:
   enabled: true
@@ -16,6 +15,5 @@ child-2:
   hpa:
     enabled: false
   image:
-    registry: ""
-    repository: "igcb-otp-arx-sso-docker/igcb-otp-arx-sso-docker"
-    tag: "22.2.1.18-stg"
+    repository: child-1-app
+    tag: "latest-5"
