@@ -1,5 +1,6 @@
 const glob = require('glob');
 
+// This finds every Chart.yaml in your complex tree automatically
 const charts = glob.sync("Immutable/**/Chart.yaml");
 
 const bumpFiles = [
