@@ -1,6 +1,6 @@
 {
   "name": "igcb-helm-release",
-  "version": "4.1.20",
+  "version": "4.1.21",
   "devDependencies": {
     "standard-version": "^9.5.0",
     "glob": "^8.0.0"
