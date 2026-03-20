@@ -9,35 +9,34 @@ module.exports = {
 
   writeVersion: function(contents, version) {
     const suitePrefix = "22.4";
-    const fullAppVersion = `${suitePrefix}.${version}`;
-    const filePath = this.filename; // Provided by standard-version
+    const filePath = this.filename; 
     const chartDir = path.dirname(filePath);
 
-    // 1. Get list of files changed in this specific commit/MR
+    // 1. Get the list of files changed in this specific commit
     const changedFiles = execSync('git diff --name-only HEAD^ HEAD').toString();
 
-    // 2. Identify the specific changes
-    const globalChanged = changedFiles.includes('mutable/DIT/global-values.yaml');
-    const chartChanged = changedFiles.includes(chartDir);
-    const templateChanged = changedFiles.includes(`${chartDir}/templates/`);
-    const valuesChanged = changedFiles.includes(`${chartDir}/values.yaml`);
+    // 2. Identify the types of changes
+    const isGlobalChanged = changedFiles.includes('mutable/DIT/global-values.yaml');
+    const isThisChartChanged = changedFiles.includes(chartDir);
+    const isParent = contents.includes('type: application'); // Parent chart identification
 
     let newContents = contents;
 
-    // RULE: If Global values change -> Update appVersion for ALL charts
-    if (globalChanged) {
-        newContents = newContents.replace(/^appVersion:.*$/m, `appVersion: "${fullAppVersion}"`);
-        // Note: You can also choose to bump the chart version here if desired
+    // RULE 1: If Global changed OR this specific child changed -> Update Version & AppVersion
+    if (isGlobalChanged || isThisChartChanged) {
+        console.log(`>>> Updating ${filePath} due to ${isGlobalChanged ? 'Global' : 'Local'} change.`);
+        
+        // Update Chart Version
+        newContents = newContents.replace(/^version:.*$/m, `version: ${version}`);
+        
+        // Update AppVersion with Suite Prefix
+        newContents = newContents.replace(/^appVersion:.*$/m, `appVersion: "${suitePrefix}.${version}"`);
     }
 
-    // RULE: If this specific chart has Template, Values, or Image changes
-    if (chartChanged) {
-        if (templateChanged || valuesChanged) {
-            // Apply synchronized update to both fields
-            newContents = newContents.replace(/^version:.*$/m, `version: ${version}`);
-            newContents = newContents.replace(/^appVersion:.*$/m, `appVersion: "${fullAppVersion}"`);
-            console.log(`>>> Updated ${filePath}: version and appVersion set to ${version}`);
-        }
+    // RULE 2: If we are in the PARENT Chart, we must also update the dependency versions
+    if (isParent) {
+        // This regex finds the versions inside the 'dependencies' block and updates them to match the new release
+        newContents = newContents.replace(/(- name:.*\n\s+version:)\s*[\d.]+/g, `$1 ${version}`);
     }
 
     return newContents;
