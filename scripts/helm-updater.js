@@ -10,32 +10,33 @@ module.exports = {
   writeVersion: function(contents, version) {
     const suitePrefix = "22.4";
     const fullAppVersion = `${suitePrefix}.${version}`;
-    const filePath = this.filename; // standard-version provides the current file path
-
-    // 1. Get changed files in this commit
-    const changedFiles = execSync('git diff --name-only HEAD').toString();
-    
-    // 2. Logic: Global Change Check
-    const globalChanged = changedFiles.includes('mutable/DIT/global-values.yaml');
-
-    // 3. Logic: Check if THIS specific chart folder changed
+    const filePath = this.filename; // Provided by standard-version
     const chartDir = path.dirname(filePath);
+
+    // 1. Get list of files changed in this specific commit/MR
+    const changedFiles = execSync('git diff --name-only HEAD^ HEAD').toString();
+
+    // 2. Identify the specific changes
+    const globalChanged = changedFiles.includes('mutable/DIT/global-values.yaml');
     const chartChanged = changedFiles.includes(chartDir);
+    const templateChanged = changedFiles.includes(`${chartDir}/templates/`);
+    const valuesChanged = changedFiles.includes(`${chartDir}/values.yaml`);
 
     let newContents = contents;
 
-    // RULE: If Global changed OR this specific chart changed, update appVersion
-    if (globalChanged || chartChanged) {
-        
-        // If Template changed -> Bump version
-        // (Checks if any .yaml file in the specific chart's template folder changed)
-        if (changedFiles.includes(`${chartDir}/templates`) || globalChanged) {
-             newContents = newContents.replace(/^version:.*$/m, `version: ${version}`);
-        }
+    // RULE: If Global values change -> Update appVersion for ALL charts
+    if (globalChanged) {
+        newContents = newContents.replace(/^appVersion:.*$/m, `appVersion: "${fullAppVersion}"`);
+        // Note: You can also choose to bump the chart version here if desired
+    }
 
-        // If Values, Image, or Global changed -> Bump appVersion
-        if (changedFiles.includes(`${chartDir}/values.yaml`) || globalChanged) {
-             newContents = newContents.replace(/^appVersion:.*$/m, `appVersion: "${fullAppVersion}"`);
+    // RULE: If this specific chart has Template, Values, or Image changes
+    if (chartChanged) {
+        if (templateChanged || valuesChanged) {
+            // Apply synchronized update to both fields
+            newContents = newContents.replace(/^version:.*$/m, `version: ${version}`);
+            newContents = newContents.replace(/^appVersion:.*$/m, `appVersion: "${fullAppVersion}"`);
+            console.log(`>>> Updated ${filePath}: version and appVersion set to ${version}`);
         }
     }
 
