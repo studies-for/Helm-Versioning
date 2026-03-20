@@ -1,6 +1,6 @@
 const glob = require('glob');
 
-// This finds every Chart.yaml in your complex tree automatically
+// Finds every Chart.yaml in your structure
 const charts = glob.sync("Immutable/**/Chart.yaml");
 
 const bumpFiles = [
@@ -16,5 +16,6 @@ charts.forEach(file => {
 
 module.exports = {
   bumpFiles: bumpFiles,
+  // This ensures we only create ONE git tag for the whole release (e.g., v4.1.7)
   packageFiles: [{ filename: "package.json", type: "json" }]
 };
