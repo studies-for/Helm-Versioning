@@ -1,0 +1,21 @@
+child-1:
+  enabled: true
+  ingress:
+    enabled: true
+  hpa:
+    enabled: false
+  image:
+    registry: ""
+    repository: "igcb-otp-arx-al-docker/igcb-otp-arx-al-docker"
+    tag: "22.2.1.18-stg"    
+
+child-2:
+  enabled: true
+  ingress:
+    enabled: true
+  hpa:
+    enabled: false
+  image:
+    registry: ""
+    repository: "igcb-otp-arx-sso-docker/igcb-otp-arx-sso-docker"
+    tag: "22.2.1.18-stg"
