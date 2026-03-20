@@ -1,42 +1,53 @@
 const { execSync } = require('child_process');
-const path = require('path');
 
 module.exports = {
+  // 1. Read current version from YAML
   readVersion: function(contents) {
     const m = contents.match(/^version:\s*([\d.]+)/m);
     return m ? m[1] : '0.0.0';
   },
 
+  // 2. Write new version based on your rules
   writeVersion: function(contents, version) {
     const suitePrefix = "22.4";
-    const filePath = this.filename; 
-    const chartDir = path.dirname(filePath);
+    const fullAppVersion = `${suitePrefix}.${version}`;
 
-    // 1. Get the list of files changed in this specific commit
-    const changedFiles = execSync('git diff --name-only HEAD^ HEAD').toString();
+    // Detect the chart name from the YAML content
+    const nameMatch = contents.match(/^name:\s*(.+)/m);
+    const chartName = nameMatch ? nameMatch[1].trim() : "";
 
-    // 2. Identify the types of changes
-    const isGlobalChanged = changedFiles.includes('mutable/DIT/global-values.yaml');
-    const isThisChartChanged = changedFiles.includes(chartDir);
-    const isParent = contents.includes('type: application'); // Parent chart identification
+    // Identify if this is the Parent Chart
+    const isParent = contents.includes('type: application');
+
+    // Get Git Changes (Detect what changed in this commit)
+    let changedFiles = "";
+    try {
+        // In GitHub Actions, we compare HEAD with the previous commit
+        changedFiles = execSync('git diff --name-only HEAD~1').toString();
+    } catch (e) {
+        // Fallback for local testing or first commit
+        changedFiles = execSync('git diff --name-only').toString();
+    }
+
+    const isGlobalChanged = changedFiles.includes('mutable/UAT/global-values.yaml');
+    const isThisChartChanged = chartName && changedFiles.includes(chartName);
 
     let newContents = contents;
 
-    // RULE 1: If Global changed OR this specific child changed -> Update Version & AppVersion
-    if (isGlobalChanged || isThisChartChanged) {
-        console.log(`>>> Updating ${filePath} due to ${isGlobalChanged ? 'Global' : 'Local'} change.`);
+    // RULE: Update this chart ONLY if Global changed OR this specific chart changed OR it's the Parent
+    if (isGlobalChanged || isThisChartChanged || isParent) {
         
         // Update Chart Version
         newContents = newContents.replace(/^version:.*$/m, `version: ${version}`);
         
-        // Update AppVersion with Suite Prefix
-        newContents = newContents.replace(/^appVersion:.*$/m, `appVersion: "${suitePrefix}.${version}"`);
-    }
+        // Update AppVersion with Quotes
+        newContents = newContents.replace(/^appVersion:.*$/m, `appVersion: "${fullAppVersion}"`);
 
-    // RULE 2: If we are in the PARENT Chart, we must also update the dependency versions
-    if (isParent) {
-        // This regex finds the versions inside the 'dependencies' block and updates them to match the new release
-        newContents = newContents.replace(/(- name:.*\n\s+version:)\s*[\d.]+/g, `$1 ${version}`);
+        // RULE: If it's the Parent, update the versions in the 'dependencies' section
+        if (isParent) {
+            // This updates all dependency versions to match the new release version
+            newContents = newContents.replace(/(- name:.*\n\s+version:)\s*[\d.]+/g, `$1 ${version}`);
+        }
     }
 
     return newContents;
