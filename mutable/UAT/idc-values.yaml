@@ -1,0 +1,19 @@
+idc-1:
+  enabled: true
+  ingress:
+    enabled: true
+  hpa:
+    enabled: false 
+  image:
+    repository: child-1-app
+    tag: "latest-52"
+
+idc-2:
+  enabled: true
+  ingress:
+    enabled: true
+  hpa:
+    enabled: false
+  image:
+    repository: child-1-app
+    tag: "latest-53"
