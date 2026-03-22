@@ -2,8 +2,8 @@ apiVersion: v2
 name: my-parent-chart
 description: A parent helm chart managing two subcharts
 type: application
-version: 4.1.36
-appVersion: "22.4.4.1.36"
+version: 4.1.37
+appVersion: "22.4.4.1.37"
 
 dependencies:
   - name: child-1
