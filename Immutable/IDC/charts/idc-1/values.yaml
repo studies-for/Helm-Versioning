@@ -1,0 +1,4 @@
+replicaCount: 1
+image:
+  repository: child-1-app
+  tag: "latest-5"
