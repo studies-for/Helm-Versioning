@@ -1,4 +1,5 @@
 const { execSync } = require('child_process');
+const path = require('path');
 
 module.exports = {
   readVersion: function(contents) {
@@ -10,13 +11,16 @@ module.exports = {
     const suitePrefix = "22.4";
     const fullAppVersion = `${suitePrefix}.${version}`;
 
-    // 1. Detect this chart's name from its own Chart.yaml
+    // 1. Get current Chart info
     const nameMatch = contents.match(/^name:\s*(.+)/m);
     const chartName = nameMatch ? nameMatch[1].trim() : "";
     const isParent = contents.includes('type: application');
+    
+    // Determine Domain (ARX or IDC) based on file path
+    // this.filename is provided by standard-version in newer versions, 
+    // but we can also detect it from the logic below.
 
-    // 2. Get the Git Diff of the actual lines changed
-    // -U0 ensures we only see the lines added/removed without context
+    // 2. Get the Git Diff (Lines added/removed)
     let diff = "";
     try {
         diff = execSync('git diff -U0 HEAD~1').toString();
@@ -25,42 +29,70 @@ module.exports = {
     }
 
     // 3. IDENTIFICATION LOGIC
-    const globalFileChanged = diff.includes('mutable/UAT/global-values.yaml');
+    const isGlobalChanged = diff.includes('mutable/global-values.yaml');
     
-    // Check if the specific child section in values.yaml was modified
-    // This looks for "+  child-1:" or any change under the "child-1:" block
-    const childSectionChanged = diff.includes(`${chartName}:`);
+    // Check if the specific values file for this chart's group changed
+    // If chart is 'child-1', we look for 'arx-values.yaml'
+    // If chart is 'idc-1', we look for 'idc-values.yaml'
+    const isArxValuesChanged = diff.includes('mutable/arx-values.yaml');
+    const isIdcValuesChanged = diff.includes('mutable/idc-values.yaml');
+
+    // Check if THIS specific service block was modified inside those files
+    const isServiceBlockChanged = diff.includes(`${chartName}:`);
     
-    // Check if files inside the child's own directory changed
-    const directoryChanged = diff.includes(`charts/${chartName}/`);
+    // Check if the actual source code/templates changed
+    const isDirectoryChanged = diff.includes(`/${chartName}/`);
 
     let newContents = contents;
+    let shouldUpdate = false;
 
-    // RULE: Update Child Chart
+    // RULE 1: Global change -> Update EVERYTHING
+    if (isGlobalChanged) shouldUpdate = true;
+
+    // RULE 2: Specific Child Update Logic
     if (!isParent) {
-        if (globalFileChanged || childSectionChanged || directoryChanged) {
-            console.log(`>>> Bumping Child: ${chartName}`);
-            newContents = newContents.replace(/^version:.*$/m, `version: ${version}`);
-            newContents = newContents.replace(/^appVersion:.*$/m, `appVersion: "${fullAppVersion}"`);
+        if (isDirectoryChanged || isServiceBlockChanged) {
+            shouldUpdate = true;
         }
     }
 
-    // RULE: Update Parent Chart
+    // RULE 3: Parent Update Logic
     if (isParent) {
-        console.log(`>>> Bumping Parent and checking dependencies...`);
-        newContents = newContents.replace(/^version:.*$/m, `version: ${version}`);
-        newContents = newContents.replace(/^appVersion:.*$/m, `appVersion: "${suitePrefix}.${version}"`);
+        // Parent updates if its own folder changed OR its respective domain values file changed
+        const isArxParent = chartName.toLowerCase().includes('arx');
+        const isIdcParent = chartName.toLowerCase().includes('idc');
+        
+        if ((isArxParent && isArxValuesChanged) || (isIdcParent && isIdcValuesChanged) || isDirectoryChanged || isGlobalChanged) {
+            shouldUpdate = true;
+        }
+    }
 
-        // ONLY update dependency version if that specific child actually changed
-        // This prevents child-2 from being bumped in the parent if only child-1 changed
-        const childNames = ["child-1", "child-2"]; // Add your other 50+ names or detect them
-        childNames.forEach(name => {
-            const thisChildChanged = diff.includes(`${name}:`) || diff.includes(`charts/${name}/`);
-            if (thisChildChanged || globalFileChanged) {
-                const regex = new RegExp(`(- name: ${name}\\n\\s+version:)\\s*[\\d.]+`, 'g');
-                newContents = newContents.replace(regex, `$1 ${version}`);
+    // 4. PERFORM THE UPDATE
+    if (shouldUpdate) {
+        console.log(`>>> Bumping ${chartName} to ${version}`);
+        
+        // Update Chart Version
+        newContents = newContents.replace(/^version:.*$/m, `version: ${version}`);
+        
+        // Update AppVersion
+        newContents = newContents.replace(/^appVersion:.*$/m, `appVersion: "${fullAppVersion}"`);
+
+        // 5. SYNC DEPENDENCIES (If Parent)
+        if (isParent) {
+            // We scan the diff to see which specific children changed and update only those in the 'dependencies' list
+            const dependencies = contents.match(/- name:\s*(.+)/g);
+            if (dependencies) {
+                dependencies.forEach(depLine => {
+                    const depName = depLine.split(':')[1].trim();
+                    const depChanged = diff.includes(`${depName}:`) || diff.includes(`/${depName}/`) || isGlobalChanged;
+                    
+                    if (depChanged) {
+                        const regex = new RegExp(`(- name: ${depName}\\n\\s+version:)\\s*[\\d.]+`, 'g');
+                        newContents = newContents.replace(regex, `$1 ${version}`);
+                    }
+                });
             }
-        });
+        }
     }
 
     return newContents;
