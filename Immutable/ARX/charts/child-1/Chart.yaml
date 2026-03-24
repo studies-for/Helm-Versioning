@@ -1,4 +1,4 @@
 apiVersion: v2
 name: child-1
-version: 4.1.45
-appVersion: "22.4.4.1.45"
+version: 4.1.46
+appVersion: "22.4.4.1.46"
