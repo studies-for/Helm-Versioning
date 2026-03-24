@@ -2,7 +2,7 @@
 global:
   environment: production-2
   domain: example.com
-  registry: mydocker-repo.io
+  registry: harbor-repo.io
 
 # Overriding values specifically for child-1
 child-1:
