@@ -6,7 +6,7 @@ idc-1:
     enabled: false 
   image:
     repository: child-1-app
-    tag: "latest-52"
+    tag: "latest-55"
 
 idc-2:
   enabled: true
