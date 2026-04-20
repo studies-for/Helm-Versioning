@@ -7,7 +7,7 @@ module.exports = {
   },
 
   writeVersion: function(contents, version) {
-    const suitePrefix = "22.4";
+    const suitePrefix = "22";
     const fullAppVersion = `${suitePrefix}.${version}`;
 
     // 1. Get Chart Name and Type
