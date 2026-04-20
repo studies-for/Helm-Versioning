@@ -1,4 +1,53 @@
-replicaCount: 1
+
 image:
-  repository: child-1-app
-  tag: "latest-5"
+  registry: ""
+  repository: ""
+  pullPolicy: Always
+  tag: ""
+
+podAnnotations: {}
+
+podLabels: {}
+
+podSecurityContext:
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 2000
+  
+service:
+  protocol: TCP
+  type: ClusterIP
+
+ingress:
+  ingressClassName: ""
+  path: "/app"
+
+Probe:
+  livenesspath: "actuator/health/liveness"
+  readinesspath: "actuator/health/readiness"
+
+resources:
+  requests:
+    cpu: "20m"
+    memory: "50Mi"  
+  limits:
+    cpu: "250m"
+    memory: "1Gi"
+
+
+
+configmap:
+  name: "{{ .Release.Name }}-web"
+  data:
+    SERVER_PORT: "8080"
+    LOG_LEVEL: "ERROR"
+    
+secret:
+  - name: SMTPS_CRED
+    secretkey: SMTPS-CRED
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
