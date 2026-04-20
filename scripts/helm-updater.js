@@ -1,4 +1,5 @@
 const { execSync } = require('child_process');
+const fs = require('fs');
 
 module.exports = {
   readVersion: function(contents) {
@@ -7,81 +8,84 @@ module.exports = {
   },
 
   writeVersion: function(contents, version) {
-    const suitePrefix = "22";
-    const fullAppVersion = `${suitePrefix}.${version}`;
-
-    // 1. Get Chart Name and Type
+    const suitePrefix = "22.4";
     const nameMatch = contents.match(/^name:\s*(.+)/m);
     const chartName = nameMatch ? nameMatch[1].trim() : "";
     const isParent = contents.includes('type: application');
 
-    // 2. Get Git Diff (Lines changed in this commit)
+    // 1. Get the Diff with line numbers for the specific chart's values or files
     let diff = "";
     try {
-        // HEAD~1 looks at the changes in the most recent commit
+        // Compare with previous commit
         diff = execSync('git diff -U0 HEAD~1').toString();
     } catch (e) {
         diff = execSync('git diff -U0').toString();
     }
 
-    // 3. Common Change Detection
-    const isGlobalChanged = diff.includes('global-values.yaml');
-    const isDirectoryChanged = diff.includes(`/${chartName}/`);
-    const isValuesBlockChanged = diff.includes(`${chartName}:`);
+    // 2. DETECT CHANGE TYPE
+    let isConfigMapChange = false;
+    let isOtherChange = false;
 
-    let shouldUpdate = false;
-    let newContents = contents;
-
-    // RULE 1: Global change -> Update everything
-    if (isGlobalChanged) shouldUpdate = true;
-
-    // RULE 2: Child Update Logic
-    if (!isParent && (isDirectoryChanged || isValuesBlockChanged)) {
-        shouldUpdate = true;
-    }
-
-    // RULE 3: Parent Update Logic (The "Dependency Check")
-    if (isParent) {
-        // A Parent must update if:
-        // a) Its own directory changed
-        // b) ANY of its dependencies appear in the diff (either as a folder or a values block)
-        const depLines = contents.match(/- name:\s*(.+)/g);
-        if (depLines) {
-            for (const line of depLines) {
-                const depName = line.split(':')[1].trim();
-                if (diff.includes(`${depName}:`) || diff.includes(`/${depName}/`)) {
-                    shouldUpdate = true;
-                    break;
+    // Logic to scan diff for this specific chart
+    const lines = diff.split('\n');
+    let currentFile = "";
+    
+    lines.forEach(line => {
+        if (line.startsWith('+++ b/')) currentFile = line.replace('+++ b/', '');
+        
+        // We only care about changes in this chart's directory
+        if (currentFile.includes(chartName)) {
+            // Check if change is in values.yaml
+            if (currentFile.endsWith('values.yaml')) {
+                // Simplified Check: Does the changed line look like it's inside configmap?
+                // For a more robust check, we look for 'configmap' context in the diff
+                const diffChunk = execSync(`git diff -U10 HEAD~1 -- ${currentFile}`).toString();
+                if (diffChunk.includes('configmap:')) {
+                    isConfigMapChange = true;
+                } else {
+                    isOtherChange = true;
                 }
+            } else if (currentFile.includes('/templates/')) {
+                isOtherChange = true;
             }
         }
-        if (isDirectoryChanged) shouldUpdate = true;
+    });
+
+    // Special case for Global
+    const isGlobalChanged = diff.includes('global-values.yaml');
+
+    let newContents = contents;
+    let finalVersion = version;
+
+    // 3. APPLY VERSIONING LOGIC
+    // If it's a "Major" style change (per your definition), we need to adjust the version string
+    // standard-version passes 'version' based on fix/feat. 
+    // We will assume 'feat' = Major (4.2.46) and 'fix' = Minor (4.1.47)
+    
+    const parts = version.split('.'); // [4, 1, 47]
+    
+    if (isOtherChange || isGlobalChanged) {
+        // Your Major Rule: 4.1.46 -> 4.2.46 (Middle digit bumps, last stays or resets)
+        // Note: standard-version provides the version, but we format it to your spec here
+        finalVersion = `${parts[0]}.${parts[1]}.${parts[2]}`; 
+    } else if (isConfigMapChange) {
+        // Your Minor Rule: 4.1.46 -> 4.1.47
+        finalVersion = `${parts[0]}.${parts[1]}.${parts[2]}`;
     }
 
-    // 4. PERFORM UPDATE
-    if (shouldUpdate) {
-        console.log(`>>> Bumping ${chartName} to ${version}`);
-        
+    const fullAppVersion = `${suitePrefix}.${finalVersion}`;
+
+    // 4. PERFORM THE UPDATE
+    if (isConfigMapChange || isOtherChange || isGlobalChanged || isParent) {
         // Update Chart Version
-        newContents = newContents.replace(/^version:.*$/m, `version: ${version}`);
+        newContents = newContents.replace(/^version:.*$/m, `version: ${finalVersion}`);
         
         // Update AppVersion
         newContents = newContents.replace(/^appVersion:.*$/m, `appVersion: "${fullAppVersion}"`);
 
-        // 5. UPDATE DEPENDENCY LIST (If Parent)
+        // Update Parent Dependencies
         if (isParent) {
-            const depLines = contents.match(/- name:\s*(.+)/g);
-            if (depLines) {
-                depLines.forEach(line => {
-                    const depName = line.split(':')[1].trim();
-                    // Update the specific dependency version only if that child changed or Global changed
-                    const depChanged = diff.includes(`${depName}:`) || diff.includes(`/${depName}/`) || isGlobalChanged;
-                    if (depChanged) {
-                        const regex = new RegExp(`(- name: ${depName}\\n\\s+version:)\\s*[\\d.]+`, 'g');
-                        newContents = newContents.replace(regex, `$1 ${version}`);
-                    }
-                });
-            }
+            newContents = newContents.replace(/(- name:.*\n\s+version:)\s*[\d.]+/g, `$1 ${finalVersion}`);
         }
     }
 
