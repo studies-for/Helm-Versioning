@@ -6,6 +6,6 @@
     "release": "node release-engine.js"
   },
   "devDependencies": {
-    "glob": "^8.0.0"
+    "glob": "^8.1.0"
   }
 }
