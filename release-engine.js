@@ -1,6 +1,7 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
 const glob = require('glob');
+const path = require('path'); // <--- ADD THIS LINE
 
 const inputVersion = process.argv[2];
 if (!inputVersion) {
@@ -15,10 +16,10 @@ const fullAppVersion = `"${suitePrefix}.${inputVersion}"`;
 let baseRef = "";
 try {
     baseRef = execSync('git describe --tags --abbrev=0').toString().trim();
-    console.log(`ℹ️ Comparing changes since: ${baseRef}`);
+    console.log(`ℹ️ Comparing changes since last release: ${baseRef}`);
 } catch (e) {
     baseRef = "HEAD^";
-    console.log(`ℹ️ No tags found. Using HEAD^`);
+    console.log(`ℹ️ No tags found. Using HEAD^ as baseline.`);
 }
 
 // 2. Fetch Diffs
@@ -34,7 +35,7 @@ try {
 }
 
 /**
- * STRICT DETECTION: Checks if a service actually has "+" changes under its header.
+ * STRICT DETECTION: Checks if a service actually has "+" changes under its specific header.
  */
 function getStrictChangeInfo(diffText, targetService) {
     const lines = diffText.split('\n');
@@ -66,7 +67,7 @@ const charts = glob.sync("Immutable/**/Chart.yaml");
 
 charts.forEach(chartPath => {
     const chartContents = fs.readFileSync(chartPath, 'utf8');
-    const chartDir = path.dirname(chartPath);
+    const chartDir = path.dirname(chartPath); // This now works with the 'path' import
     const nameMatch = chartContents.match(/^name:\s*(.+)/m);
     const chartName = nameMatch ? nameMatch[1].trim() : "";
     const isParent = chartContents.includes('type: application');
@@ -94,11 +95,10 @@ charts.forEach(chartPath => {
             if (depLines) {
                 depLines.forEach(line => {
                     const depName = line.split(':')[1].trim();
-                    const depPath = `${chartDir}/charts/${depName}`;
+                    const depFolderChanged = diffFiles.includes(`${chartDir}/charts/${depName}`);
                     
                     // Check if this specific dependency has real changes in diff
                     const depInfo = getStrictChangeInfo(diffContext, depName);
-                    const depFolderChanged = diffFiles.includes(depPath);
 
                     if (depInfo.hasRealChanges || depFolderChanged || isGlobalChanged) {
                         console.log(`    -> Syncing dependency: ${depName}`);
