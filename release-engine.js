@@ -1,7 +1,7 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
 const glob = require('glob');
-const path = require('path'); // <--- ADD THIS LINE
+const path = require('path');
 
 const inputVersion = process.argv[2];
 if (!inputVersion) {
@@ -12,14 +12,14 @@ if (!inputVersion) {
 const suitePrefix = "22.4";
 const fullAppVersion = `"${suitePrefix}.${inputVersion}"`;
 
-// 1. Get the last release tag for delta comparison
+// 1. Get the last release tag
 let baseRef = "";
 try {
     baseRef = execSync('git describe --tags --abbrev=0').toString().trim();
-    console.log(`ℹ️ Comparing changes since last release: ${baseRef}`);
+    console.log(`ℹ️ Comparing changes since: ${baseRef}`);
 } catch (e) {
     baseRef = "HEAD^";
-    console.log(`ℹ️ No tags found. Using HEAD^ as baseline.`);
+    console.log(`ℹ️ No tags found. Using HEAD^.`);
 }
 
 // 2. Fetch Diffs
@@ -27,7 +27,7 @@ let diffFiles = "";
 let diffContext = "";
 try {
     diffFiles = execSync(`git diff --name-only ${baseRef} HEAD`).toString();
-    // Use large context to capture headers like "idc-1:" above the actual "+" lines
+    // Use -U50 to capture headers above the changes
     diffContext = execSync(`git diff -U50 ${baseRef} HEAD`).toString();
 } catch (e) {
     console.error("❌ Error fetching git diff.");
@@ -35,7 +35,8 @@ try {
 }
 
 /**
- * STRICT DETECTION: Checks if a service actually has "+" changes under its specific header.
+ * STRICT DETECTION: 
+ * Only matches keys with ZERO indentation (top-level services).
  */
 function getStrictChangeInfo(diffText, targetService) {
     const lines = diffText.split('\n');
@@ -44,13 +45,14 @@ function getStrictChangeInfo(diffText, targetService) {
     let hasMetadataKeywords = false;
 
     for (let line of lines) {
-        // Detect headers (e.g., "idc-1:", "child-2:") allowing for git prefixes (space, +, -)
-        const headerMatch = line.match(/^[ +-](([\w-]+):)/);
+        // Regex: matches [space/+-] then [KeyName] then [:]
+        // Key point: [^ ] ensures the FIRST character of the YAML content is NOT a space (Zero Indent)
+        const headerMatch = line.match(/^[ +-]([^\s][\w-]+):/);
+        
         if (headerMatch) {
-            currentServiceInDiff = headerMatch[2];
+            currentServiceInDiff = headerMatch[1];
         }
 
-        // Only count lines starting with "+" (Actual additions/changes)
         if (line.startsWith('+') && !line.startsWith('+++')) {
             if (currentServiceInDiff === targetService) {
                 hasRealChanges = true;
@@ -67,7 +69,7 @@ const charts = glob.sync("Immutable/**/Chart.yaml");
 
 charts.forEach(chartPath => {
     const chartContents = fs.readFileSync(chartPath, 'utf8');
-    const chartDir = path.dirname(chartPath); // This now works with the 'path' import
+    const chartDir = path.dirname(chartPath);
     const nameMatch = chartContents.match(/^name:\s*(.+)/m);
     const chartName = nameMatch ? nameMatch[1].trim() : "";
     const isParent = chartContents.includes('type: application');
@@ -80,29 +82,26 @@ charts.forEach(chartPath => {
     let updatedContents = chartContents;
 
     if (isParent) {
-        // Determine domain from folder path (ARX or IDC)
         const domain = chartPath.includes('/ARX/') ? 'arx' : 'idc';
         const isDomainValuesChanged = diffFiles.includes(`${domain}-values.yaml`);
 
-        // Parent bumps if: Global changed OR Domain values changed OR its own templates changed
         if (isGlobalChanged || isDomainValuesChanged || hasTemplateChanges) {
             console.log(`>>> [PARENT] Bumping ${chartName}`);
             updatedContents = updatedContents.replace(/^version:.*$/m, `version: ${inputVersion}`);
             updatedContents = updatedContents.replace(/^appVersion:.*$/m, `appVersion: ${fullAppVersion}`);
 
-            // SYNC DEPENDENCIES: Only bump dependencies that actually have changes
+            // SYNC DEPENDENCIES
             const depLines = updatedContents.match(/- name:\s*(.+)/g);
             if (depLines) {
                 depLines.forEach(line => {
                     const depName = line.split(':')[1].trim();
-                    const depFolderChanged = diffFiles.includes(`${chartDir}/charts/${depName}`);
-                    
-                    // Check if this specific dependency has real changes in diff
                     const depInfo = getStrictChangeInfo(diffContext, depName);
+                    const depFolderChanged = diffFiles.includes(`${chartDir}/charts/${depName}`);
 
                     if (depInfo.hasRealChanges || depFolderChanged || isGlobalChanged) {
                         console.log(`    -> Syncing dependency: ${depName}`);
-                        const regex = new RegExp(`(- name: ${depName}\\n\\s+version:)\\s*[\\d.]+`, 'g');
+                        // Targeted regex to only replace the version for the specific dependency name
+                        const regex = new RegExp(`(- name: ${depName}\\r?\\n\\s+version:)\\s*[\\d.]+`, 'g');
                         updatedContents = updatedContents.replace(regex, `$1 ${inputVersion}`);
                     }
                 });
