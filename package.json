@@ -1,8 +1,11 @@
 {
-  "name": "igcb-helm-release",
-  "version": "4.2.1",
+  "name": "igcb-helm-release-engine",
+  "version": "1.0.0",
+  "description": "Input-driven versioning for IGCB Helm Monorepo",
+  "scripts": {
+    "release": "node release-engine.js"
+  },
   "devDependencies": {
-    "standard-version": "^9.5.0",
     "glob": "^8.0.0"
   }
 }
