@@ -2,13 +2,13 @@ apiVersion: v2
 name: my-idc-chart
 description: A parent helm chart managing two subcharts
 type: application
-version: 5.1.3
-appVersion: "22.4.5.1.3"
+version: 5.1.4
+appVersion: "22.4.5.1.4"
 
 dependencies:
   - name: idc-1
-    version: 5.1.3
+    version: 5.1.4
     repository: "file://./charts/idc-1"
   - name: idc-2
-    version: 5.1.3
+    version: 5.1.4
     repository: "file://./charts/idc-2"
