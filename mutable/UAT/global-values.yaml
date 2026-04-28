@@ -1,7 +1,7 @@
 # Global values accessible by parent and all subcharts
 global:
   environment: production-2
-  domain: example.com
+  domain: examplee.com
   registry: harbor-repo.io
 
 # Overriding values specifically for child-1
