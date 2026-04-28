@@ -2,28 +2,41 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const glob = require('glob');
 
-// 1. Capture the input version from the command line
 const inputVersion = process.argv[2];
 if (!inputVersion) {
-    console.error("❌ Error: Provide a version. Example: node release-engine.js 4.2.5");
+    console.error("❌ Error: Provide a version.");
     process.exit(1);
 }
 
-const suitePrefix = "22";
+const suitePrefix = "22.4";
 const fullAppVersion = `"${suitePrefix}.${inputVersion}"`;
 
-// 2. Capture Git Changes (Diff between current state and previous commit)
-let diffFiles = "";
-let diffContent = "";
+// --- NEW SMART GIT DETECTION ---
+let baseRef = "";
 try {
-    diffFiles = execSync('git diff --name-only HEAD^ HEAD').toString();
-    diffContent = execSync('git diff -U0 HEAD^ HEAD').toString();
+    // 1. Try to find the last tag (e.g., v4.1.49)
+    baseRef = execSync('git describe --tags --abbrev=0').toString().trim();
+    console.log(`ℹ️ Last release tag found: ${baseRef}. Comparing all changes since then.`);
 } catch (e) {
-    diffFiles = execSync('git diff --name-only').toString();
-    diffContent = execSync('git diff -U0').toString();
+    // 2. Fallback if no tags exist yet (e.g., first release)
+    baseRef = "HEAD^";
+    console.log(`ℹ️ No tags found. Comparing against previous commit only.`);
 }
 
-// 3. Find all Chart.yaml files in the Monorepo
+let diffFiles = "";
+let diffStrict = ""; 
+let diffContext = ""; 
+try {
+    // 3. Compare the BASE (last tag) to the current HEAD
+    diffFiles = execSync(`git diff --name-only ${baseRef} HEAD`).toString();
+    diffStrict = execSync(`git diff -U0 ${baseRef} HEAD`).toString();
+    diffContext = execSync(`git diff -U20 ${baseRef} HEAD`).toString(); 
+} catch (e) {
+    console.error("❌ Error fetching git diff.");
+    process.exit(1);
+}
+// --- END GIT DETECTION ---
+
 const charts = glob.sync("Immutable/**/Chart.yaml");
 
 charts.forEach(chartPath => {
@@ -33,45 +46,43 @@ charts.forEach(chartPath => {
     const chartName = nameMatch ? nameMatch[1].trim() : "";
     const isParent = chartContents.includes('type: application');
 
-    // 4. Logic: Detect Change Types
-    const hasTemplateChanges = diffFiles.includes(`${chartDir}/templates/`);
-    const hasValuesChanges = diffContent.includes(`${chartName}:`);
     const isGlobalChanged = diffFiles.includes('global-values.yaml');
+    const hasTemplateChanges = diffFiles.includes(`${chartDir}/templates/`);
+    
+    // Checks if the service block changed at any point in the multiple commits
+    const serviceHunkRegex = new RegExp(`@@(.|\\n)*?${chartName}:(.|\\n)*?\\+`, 'g');
+    const hasValuesChanges = serviceHunkRegex.test(diffContext);
 
-    // Check for Metadata Keywords in the values diff (image, configmap, secret)
-    // We check for lines starting with + to only look at what was added/changed
-    const metadataKeywords = /\+.*(image:|configmap:|secret:)/i;
-    const hasMetadataChanges = metadataKeywords.test(diffContent) && hasValuesChanges;
+    const metadataKeywords = /^\+.*(image:|configmap:|secret:|tag:|repository:)/im;
+    const hasMetadataChanges = metadataKeywords.test(diffStrict) && hasValuesChanges;
 
     let updatedContents = chartContents;
 
     if (isParent) {
-        // RULE: Parent always updates both version and appVersion to match release input
-        console.log(`>>> [PARENT] Bumping ${chartName}`);
-        updatedContents = updatedContents.replace(/^version:.*$/m, `version: ${inputVersion}`);
-        updatedContents = updatedContents.replace(/^appVersion:.*$/m, `appVersion: ${fullAppVersion}`);
-        
-        // Sync dependency versions inside parent
-        updatedContents = updatedContents.replace(/(- name:.*\n\s+version:)\s*[\d.]+/g, `$1 ${inputVersion}`);
+        const parentPrefix = chartName.toLowerCase().split('-')[1]; 
+        const isMyDomainChanged = diffFiles.includes(`${parentPrefix}-values.yaml`);
+
+        if (isMyDomainChanged || isGlobalChanged || hasTemplateChanges) {
+            console.log(`>>> [PARENT] Bumping ${chartName}`);
+            updatedContents = updatedContents.replace(/^version:.*$/m, `version: ${inputVersion}`);
+            updatedContents = updatedContents.replace(/^appVersion:.*$/m, `appVersion: ${fullAppVersion}`);
+            updatedContents = updatedContents.replace(/(- name:.*\n\s+version:)\s*[\d.]+/g, `$1 ${inputVersion}`);
+        }
     } else {
-        // RULE: Child Logic
         if (hasMetadataChanges && !hasTemplateChanges && !isGlobalChanged) {
-            // ONLY appVersion changes
-            console.log(`>>> [CHILD] Metadata Update (appVersion only): ${chartName}`);
+            console.log(`>>> [CHILD] Metadata Update: ${chartName}`);
             updatedContents = updatedContents.replace(/^appVersion:.*$/m, `appVersion: ${fullAppVersion}`);
         } 
         else if (hasTemplateChanges || hasValuesChanges || isGlobalChanged) {
-            // BOTH version and appVersion change
-            console.log(`>>> [CHILD] Full Update (Version + appVersion): ${chartName}`);
+            console.log(`>>> [CHILD] Full Update: ${chartName}`);
             updatedContents = updatedContents.replace(/^version:.*$/m, `version: ${inputVersion}`);
             updatedContents = updatedContents.replace(/^appVersion:.*$/m, `appVersion: ${fullAppVersion}`);
         }
     }
 
-    // 5. Save the file if changes were made
     if (updatedContents !== chartContents) {
         fs.writeFileSync(chartPath, updatedContents);
     }
 });
 
-console.log(`✅ Release Processing Complete for version: ${inputVersion}`);
+console.log(`✅ Finished processing version: ${inputVersion}`);
