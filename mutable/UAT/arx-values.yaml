@@ -6,7 +6,7 @@ child-1:
     enabled: false 
   image:
     repository: child-1-app
-    tag: "latest-61"
+    tag: "latest-71"
 
 child-2:
   enabled: true
