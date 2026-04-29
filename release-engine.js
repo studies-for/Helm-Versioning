@@ -1,128 +1,144 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
-const glob = require('glob');
 const path = require('path');
+const glob = require('glob');
 
+/**
+ * CONFIGURATION & INPUT
+ */
 const inputVersion = process.argv[2];
 if (!inputVersion) {
-    console.error("❌ Error: Provide a version.");
+    console.error("❌ Error: Please provide a version number (e.g., node release-engine.js 5.2.0)");
     process.exit(1);
 }
 
-const suitePrefix = "22.4";
-const fullAppVersion = `"${suitePrefix}.${inputVersion}"`;
+// All versions now exactly match the input
+const targetVersion = inputVersion;
 
-// 1. Get the last release tag
+/**
+ * 1. GIT ANALYSIS
+ * Finds the total delta since the last successful release tag
+ */
 let baseRef = "";
 try {
     baseRef = execSync('git describe --tags --abbrev=0').toString().trim();
-    console.log(`ℹ️ Comparing changes since: ${baseRef}`);
+    console.log(`ℹ️  Baseline: Comparing changes since ${baseRef}`);
 } catch (e) {
     baseRef = "HEAD^";
-    console.log(`ℹ️ No tags found. Using HEAD^.`);
+    console.log(`ℹ️  Baseline: No tags found. Comparing against previous commit.`);
 }
 
-// 2. Fetch Diffs
 let diffFiles = "";
 let diffContext = "";
 try {
     diffFiles = execSync(`git diff --name-only ${baseRef} HEAD`).toString();
-    // Use -U50 to capture headers above the changes
+    // Fetch 50 lines of context to accurately find top-level YAML headers
     diffContext = execSync(`git diff -U50 ${baseRef} HEAD`).toString();
 } catch (e) {
-    console.error("❌ Error fetching git diff.");
+    console.error("❌ Error: Could not fetch git diff. Ensure you are in a Git repo.");
     process.exit(1);
 }
 
 /**
- * STRICT DETECTION: 
- * Only matches keys with ZERO indentation (top-level services).
+ * 2. SMART CHANGE DETECTION
+ * Identifies if a specific service block has changes in the diff
  */
-function getStrictChangeInfo(diffText, targetService) {
+function getChangeStatus(diffText, chartName) {
     const lines = diffText.split('\n');
-    let currentServiceInDiff = null;
-    let hasRealChanges = false;
-    let hasMetadataKeywords = false;
+    let currentBlock = null;
+    let hasActualChanges = false;
+    let isMetadataOnly = false;
 
     for (let line of lines) {
-        // Regex: matches [space/+-] then [KeyName] then [:]
-        // Key point: [^ ] ensures the FIRST character of the YAML content is NOT a space (Zero Indent)
+        // Matches top-level YAML keys (zero indentation) in the diff
+        // e.g., "idc-1:", "child-2:"
         const headerMatch = line.match(/^[ +-]([^\s][\w-]+):/);
-        
         if (headerMatch) {
-            currentServiceInDiff = headerMatch[1];
+            currentBlock = headerMatch[1];
         }
 
+        // Only look at added lines (+)
         if (line.startsWith('+') && !line.startsWith('+++')) {
-            if (currentServiceInDiff === targetService) {
-                hasRealChanges = true;
-                if (/image:|configmap:|secret:|tag:|repository:/i.test(line)) {
-                    hasMetadataKeywords = true;
-                }
+            if (currentBlock === chartName) {
+                hasActualChanges = true;
+                // Check if the change is limited to metadata (image, config, secret, tags)
+                const metadataKeywords = /image:|configmap:|secret:|tag:|repository:/i;
+                isMetadataOnly = metadataKeywords.test(line);
             }
         }
     }
-    return { hasRealChanges, hasMetadataKeywords };
+    return { hasActualChanges, isMetadataOnly };
 }
 
-const charts = glob.sync("Immutable/**/Chart.yaml");
+/**
+ * 3. DYNAMIC CHART PROCESSING
+ */
+const allCharts = glob.sync("Immutable/**/Chart.yaml");
 
-charts.forEach(chartPath => {
-    const chartContents = fs.readFileSync(chartPath, 'utf8');
+allCharts.forEach(chartPath => {
+    const originalContents = fs.readFileSync(chartPath, 'utf8');
     const chartDir = path.dirname(chartPath);
-    const nameMatch = chartContents.match(/^name:\s*(.+)/m);
-    const chartName = nameMatch ? nameMatch[1].trim() : "";
-    const isParent = chartContents.includes('type: application');
+    const chartName = (originalContents.match(/^name:\s*(.+)/m) || [])[1]?.trim();
+    const isParent = originalContents.includes('type: application');
 
-    // 3. RUN DETECTION
-    const isGlobalChanged = diffFiles.includes('global-values.yaml');
-    const hasTemplateChanges = diffFiles.includes(`${chartDir}/templates`);
-    const { hasRealChanges, hasMetadataKeywords } = getStrictChangeInfo(diffContext, chartName);
+    // Identify Domain (The folder name inside Immutable, e.g., "IDC" or "ARX")
+    const pathParts = chartPath.split(path.sep);
+    const domainIndex = pathParts.indexOf('Immutable') + 1;
+    const domainName = pathParts[domainIndex].toLowerCase();
 
-    let updatedContents = chartContents;
+    // Check conditions
+    const globalChanged = diffFiles.includes('global-values.yaml');
+    const domainValuesChanged = diffFiles.includes(`${domainName}-values.yaml`);
+    const templatesChanged = diffFiles.includes(path.join(chartDir, 'templates'));
+    const changeStatus = getChangeStatus(diffContext, chartName);
+
+    let newContents = originalContents;
+    let updateNeeded = false;
 
     if (isParent) {
-        const domain = chartPath.includes('/ARX/') ? 'arx' : 'idc';
-        const isDomainValuesChanged = diffFiles.includes(`${domain}-values.yaml`);
+        // PARENT RULE: Bump if Global changed, its Domain changed, or its own Templates changed
+        if (globalChanged || domainValuesChanged || templatesChanged) {
+            updateNeeded = true;
+            console.log(`🚀 [PARENT] ${chartName} -> ${targetVersion}`);
+            newContents = newContents.replace(/^version:.*$/m, `version: ${targetVersion}`);
+            newContents = newContents.replace(/^appVersion:.*$/m, `appVersion: "${targetVersion}"`);
 
-        if (isGlobalChanged || isDomainValuesChanged || hasTemplateChanges) {
-            console.log(`>>> [PARENT] Bumping ${chartName}`);
-            updatedContents = updatedContents.replace(/^version:.*$/m, `version: ${inputVersion}`);
-            updatedContents = updatedContents.replace(/^appVersion:.*$/m, `appVersion: ${fullAppVersion}`);
-
-            // SYNC DEPENDENCIES
-            const depLines = updatedContents.match(/- name:\s*(.+)/g);
+            // Sync Dependencies: Only update children that actually changed in this release
+            const depLines = newContents.match(/- name:\s*(.+)/g);
             if (depLines) {
                 depLines.forEach(line => {
                     const depName = line.split(':')[1].trim();
-                    const depInfo = getStrictChangeInfo(diffContext, depName);
-                    const depFolderChanged = diffFiles.includes(`${chartDir}/charts/${depName}`);
-
-                    if (depInfo.hasRealChanges || depFolderChanged || isGlobalChanged) {
-                        console.log(`    -> Syncing dependency: ${depName}`);
-                        // Targeted regex to only replace the version for the specific dependency name
-                        const regex = new RegExp(`(- name: ${depName}\\r?\\n\\s+version:)\\s*[\\d.]+`, 'g');
-                        updatedContents = updatedContents.replace(regex, `$1 ${inputVersion}`);
+                    const depStatus = getChangeStatus(diffContext, depName);
+                    const depFolderChanged = diffFiles.includes(`${depName}/`);
+                    
+                    if (depStatus.hasActualChanges || depFolderChanged || globalChanged) {
+                        console.log(`   └─ Syncing Dependency: ${depName}`);
+                        const reg = new RegExp(`(- name: ${depName}\\r?\\n\\s+version:)\\s*[\\d.]+`, 'g');
+                        newContents = newContents.replace(reg, `$1 ${targetVersion}`);
                     }
                 });
             }
         }
     } else {
-        // CHILD LOGIC
-        if (hasMetadataKeywords && !hasTemplateChanges && !isGlobalChanged) {
-            console.log(`>>> [CHILD] Metadata Update: ${chartName}`);
-            updatedContents = updatedContents.replace(/^appVersion:.*$/m, `appVersion: ${fullAppVersion}`);
-        } 
-        else if (hasTemplateChanges || hasRealChanges || isGlobalChanged) {
-            console.log(`>>> [CHILD] Full Update: ${chartName}`);
-            updatedContents = updatedContents.replace(/^version:.*$/m, `version: ${inputVersion}`);
-            updatedContents = updatedContents.replace(/^appVersion:.*$/m, `appVersion: ${fullAppVersion}`);
+        // CHILD RULE
+        if (changeStatus.hasActualChanges || templatesChanged || globalChanged) {
+            updateNeeded = true;
+            
+            // If it's ONLY metadata (image/config/secret) and no templates changed
+            if (changeStatus.isMetadataOnly && !templatesChanged && !globalChanged) {
+                console.log(`📝 [CHILD] ${chartName} (Metadata Only) -> appVersion: ${targetVersion}`);
+                newContents = newContents.replace(/^appVersion:.*$/m, `appVersion: "${targetVersion}"`);
+            } else {
+                console.log(`🔥 [CHILD] ${chartName} (Full Update) -> ${targetVersion}`);
+                newContents = newContents.replace(/^version:.*$/m, `version: ${targetVersion}`);
+                newContents = newContents.replace(/^appVersion:.*$/m, `appVersion: "${targetVersion}"`);
+            }
         }
     }
 
-    if (updatedContents !== chartContents) {
-        fs.writeFileSync(chartPath, updatedContents);
+    if (updateNeeded) {
+        fs.writeFileSync(chartPath, newContents);
     }
 });
 
-console.log(`✅ Processed version: ${inputVersion}`);
+console.log(`\n✅ Done! All charts processed for version ${targetVersion}`);
