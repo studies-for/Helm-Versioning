@@ -3,7 +3,7 @@ name: my-idc-chart
 description: A parent helm chart managing two subcharts
 type: application
 version: 4.5.12
-appVersion: "4.5.12"
+appVersion: "4.5.15"
 
 dependencies:
   - name: idc-1
