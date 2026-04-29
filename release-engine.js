@@ -19,6 +19,7 @@ try {
 let diffFiles = "";
 let diffContent = "";
 try {
+    // We get the list of files and the content diff
     diffFiles = execSync(`git diff --name-only ${baseRef} HEAD`).toString();
     diffContent = execSync(`git diff -U20 ${baseRef} HEAD`).toString();
 } catch (e) {
@@ -27,7 +28,7 @@ try {
 }
 
 /**
- * Checks which service header a change belongs to and if it's metadata
+ * Checks which service header a change belongs to and if it contains keywords
  */
 function getChartChangeInfo(diffText, targetService) {
     const lines = diffText.split('\n');
@@ -36,6 +37,7 @@ function getChartChangeInfo(diffText, targetService) {
     let isMetadata = false;
 
     for (let line of lines) {
+        // Matches top-level YAML keys like "idc-1:"
         const headerMatch = line.match(/^[ +-](([^\s][\w-]+):)/);
         if (headerMatch) currentBlock = headerMatch[2];
 
@@ -59,14 +61,17 @@ allCharts.forEach(chartPath => {
     const chartName = (originalContents.match(/^name:\s*(.+)/m) || [])[1]?.trim();
     const isParent = originalContents.includes('type: application');
 
-    // MAPPING
-    const pathParts = chartPath.split(path.sep);
+    // DOMAIN MAPPING
+    // If path is Immutable/IDC/Chart.yaml, parentDirName is IDC
+    const pathParts = chartPath.split(/[\\/]/); // Handles both Windows and Linux paths
     const parentDirName = pathParts[1]; 
-    const mutableFilePath = `mutable/DIT/${parentDirName.toLowerCase()}.yaml`;
+    
+    // Maps IDC -> mutable/UAT/idc-values.yaml
+    const mutableFilePath = `mutable/UAT/${parentDirName.toLowerCase()}-values.yaml`;
 
-    // DETECTION
+    // DETECTION FLAGS
     const isGlobalChanged = diffFiles.includes('global-values.yaml');
-    const isMutableFileChanged = diffFiles.includes(mutableFilePath);
+    const isDomainValuesChanged = diffFiles.includes(mutableFilePath);
     const isInternalValuesChanged = diffFiles.includes(path.join(chartDir, 'values.yaml'));
     const isTemplateChanged = diffFiles.includes(path.join(chartDir, 'templates'));
     
@@ -75,18 +80,17 @@ allCharts.forEach(chartPath => {
     let newContents = originalContents;
     let updateType = null; // 'full' or 'metadata'
 
-    // Decide Update Type
+    // Determine if this specific chart should update
     if (isGlobalChanged || isTemplateChanged) {
         updateType = 'full';
-    } else if ((isMutableFileChanged && changeInfo.hasChanges) || isInternalValuesChanged) {
-        // If it was a values change, check if it was strictly metadata
+    } else if (isInternalValuesChanged || (isDomainValuesChanged && changeInfo.hasChanges)) {
         updateType = changeInfo.isMetadata ? 'metadata' : 'full';
     }
 
-    if (updateType || isParent) {
-        if (isParent) {
-            // Parent logic: Version only bumps if a child had a 'full' update or Parent templates changed
-            // Otherwise, only appVersion bumps
+    // SPECIAL PARENT LOGIC: Only update if the Parent's domain was touched
+    if (isParent) {
+        // A parent only updates if: its domain values changed, its own templates changed, or global changed
+        if (isGlobalChanged || isDomainValuesChanged || isTemplateChanged) {
             let parentUpdateType = (isGlobalChanged || isTemplateChanged) ? 'full' : 'metadata';
             
             console.log(`🚀 [PARENT] Processing ${chartName} (${parentUpdateType} update)`);
@@ -96,31 +100,29 @@ allCharts.forEach(chartPath => {
             }
             newContents = newContents.replace(/^appVersion:.*$/m, `appVersion: "${inputVersion}"`);
             
-            // Sync Dependencies
+            // Sync Dependencies: Only update child version if the child had a FULL update
             const depLines = newContents.match(/- name:\s*(.+)/g);
             if (depLines) {
                 depLines.forEach(line => {
                     const depName = line.split(':')[1].trim();
                     const depDir = path.join(chartDir, 'charts', depName);
-                    
-                    const depDiffInfo = getChartChangeInfo(diffContent, depName);
                     const depTemplateChanged = diffFiles.includes(path.join(depDir, 'templates'));
                     
-                    // Only update dependency VERSION if it was a FULL update
                     if (isGlobalChanged || depTemplateChanged) {
                         console.log(`    -> Syncing Dependency VERSION: ${depName}`);
                         const reg = new RegExp(`(- name: ${depName}\\r?\\n\\s+version:)\\s*[\\d.]+`, 'g');
                         newContents = newContents.replace(reg, `$1 ${inputVersion}`);
-                    } else {
-                        console.log(`    -> Skipping Dependency Version (Metadata only): ${depName}`);
                     }
                 });
             }
-        } else if (updateType === 'full') {
+        }
+    } else if (updateType) {
+        // CHILD UPDATE
+        if (updateType === 'full') {
             console.log(`🔥 [CHILD] ${chartName} (Full Update) -> ${inputVersion}`);
             newContents = newContents.replace(/^version:.*$/m, `version: ${inputVersion}`);
             newContents = newContents.replace(/^appVersion:.*$/m, `appVersion: "${inputVersion}"`);
-        } else if (updateType === 'metadata') {
+        } else {
             console.log(`📝 [CHILD] ${chartName} (Metadata Only) -> appVersion: ${inputVersion}`);
             newContents = newContents.replace(/^appVersion:.*$/m, `appVersion: "${inputVersion}"`);
         }
