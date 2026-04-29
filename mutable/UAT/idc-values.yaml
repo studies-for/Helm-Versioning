@@ -16,4 +16,4 @@ idc-2:
     enabled: false
   image:
     repository: child-1-app
-    tag: "latest-10"
+    tag: "latest-11"
