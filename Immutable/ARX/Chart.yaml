@@ -3,7 +3,7 @@ name: my-parent-chart
 description: A parent helm chart managing two subcharts
 type: application
 version: 4.5.8
-appVersion: "4.5.15"
+appVersion: "4.5.16"
 
 dependencies:
   - name: child-1
